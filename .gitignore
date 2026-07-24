@@ -56,3 +56,6 @@ credentials.json
 runs/
 wandb/
 outputs/
+
+# Exception: allow the deployment model file
+!models/risk_v1_with_embedder.pkl
