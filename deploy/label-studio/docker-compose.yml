@@ -1,0 +1,36 @@
+# Label Studio stack for the VPI-defense project.
+#
+# Portable across: local Docker Desktop, HuggingFace Spaces, Fly.io,
+# Render (paid tier with persistent disk), self-hosted VPS.
+#
+# For Render's free tier (no persistent disk), replace the volume mounts
+# with external storage credentials — see deploy/label-studio/README.md.
+
+services:
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: vpi-label-studio
+    ports:
+      - "8080:8080"
+    environment:
+      # Required. Change these before first run.
+      - LABEL_STUDIO_USERNAME=${LABEL_STUDIO_USERNAME:-admin@example.com}
+      - LABEL_STUDIO_PASSWORD=${LABEL_STUDIO_PASSWORD:-changeme}
+      # LS stores annotations + config in this dir; must survive restarts.
+      - LABEL_STUDIO_BASE_DATA_DIR=/label-studio/data
+      # Point users to the public hostname (Render/HF give you one).
+      # Leave empty for localhost.
+      - LABEL_STUDIO_HOST=${LABEL_STUDIO_HOST:-}
+      # Enable local file serving so we can serve images from a mounted volume
+      # instead of pushing every image to S3/GCS.
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/images
+    volumes:
+      # Annotation database + project state
+      - ls_data:/label-studio/data
+      # Images the annotator will label (raw + variants)
+      - ../../data:/label-studio/images:ro
+    restart: unless-stopped
+
+volumes:
+  ls_data:

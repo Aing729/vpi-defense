@@ -1,0 +1,20 @@
+# Streamlit Cloud installs from this file.
+# For local dev use `pip install -e ".[dev,analysis]"` from pyproject.toml.
+
+# Core
+streamlit>=1.36
+pillow>=10.0
+numpy>=1.26
+pydantic>=2.0
+
+# VLM + defense pipeline
+google-genai>=0.3
+scikit-learn>=1.5
+sentence-transformers>=3.0
+
+# TTS
+gTTS>=2.4
+
+# Data ingest (for training pipeline; not strictly needed at inference,
+# but pyproject.toml chains these as [analysis] extras)
+datasets>=2.19

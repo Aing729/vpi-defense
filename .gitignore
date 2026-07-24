@@ -1,0 +1,58 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ==========================================================================
+# Data: never commit datasets, model weights, or generated images.
+# Keep the directory structure via .gitkeep placeholders if desired.
+# ==========================================================================
+data/
+!data/.gitkeep
+models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# HuggingFace / torch caches (if a user sets HF_HOME inside the repo)
+.cache/
+
+# Secrets — API keys for Gemini, Label Studio, etc.
+.env
+.env.*
+!.env.example
+*.key
+credentials.json
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# Training / eval artifacts
+runs/
+wandb/
+outputs/

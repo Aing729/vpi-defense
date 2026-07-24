@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vpi-defense"
+version = "0.2.0"
+description = "Visual Prompt Injection defense pipeline for multimodal AI accessibility apps"
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "Proprietary"}
+authors = [{name = "Your Name"}]
+keywords = ["vlm", "prompt-injection", "accessibility", "security"]
+
+dependencies = [
+    "pydantic>=2.7",
+    "pillow>=10.0",
+    "datasets>=2.19",
+]
+
+[project.optional-dependencies]
+# Development tooling (tests, lint)
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+# Label Studio SDK for the labeling adapter (added in M4)
+labeling = [
+    "label-studio-sdk>=1.0",
+]
+# Analysis pipeline deps (M5+): Claude-based VLM + supporting analysis tools.
+# Kept optional so ingest/labeling work without them.
+analysis = [
+    # Primary VLM (region extraction + generation)
+    "anthropic>=0.40",
+    # Deterministic side-tools that the VLM can be cross-checked against
+    "opencv-python>=4.10",       # image ops, saliency (spectral residual)
+    "pyzbar>=0.1.9",             # QR code detection (deterministic)
+    # Classical ML for the risk function (logistic regression + IG)
+    "scikit-learn>=1.5",
+    "numpy>=1.26",
+    # Sentence embeddings for context-relevance feature (Δ_i^Y, semantic mismatch)
+    "sentence-transformers>=3.0",
+]
+
+[project.scripts]
+# Alias for `python -m vpi_defense.ingest`
+vpi-ingest = "vpi_defense.ingest.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+"vpi_defense.labeling" = ["config.xml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

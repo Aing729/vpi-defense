@@ -1,0 +1,16 @@
+[theme]
+# Accessible high-contrast palette; blue primary matches the results banner
+primaryColor = "#4a90e2"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f4f8"
+textColor = "#1a1a1a"
+font = "sans serif"
+
+[server]
+# Reasonable defaults for demo deployment
+maxUploadSize = 20  # MB per image
+enableXsrfProtection = true
+enableCORS = false
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,63 @@
+<!--
+  Label Studio labeling config for the VPI-defense project.
+
+  Maps to our RegionAnnotation schema as follows:
+
+    RectangleLabels ("region_type")  -> RegionType enum + BBox
+    Choices  ("text_like",  perRegion) -> RegionAnnotation.text_like
+    TextArea ("ocr_text",   perRegion) -> RegionAnnotation.ocr_text
+    Choices  ("risk",       perRegion) -> RiskLabels.is_injection / is_normal_info
+    Rating   ("confidence", perRegion) -> RiskLabels.confidence  (1..5 -> 0.2..1.0)
+    TextArea ("notes",      perRegion) -> RiskLabels.notes
+
+  Input:
+    task["data"]["image"]     -> URL (or absolute path) of the image to label
+    task["data"]["parent_id"] -> img_* or var_* id, echoed by the adapter
+    task["data"]["parent_kind"] -> "image" or "variant"
+-->
+<View>
+  <Header value="VPI Defense — Region Labeling"/>
+  <Text name="hint" value="Draw one rectangle per meaningful region. For each rectangle, fill the region-attribute fields on the right panel."/>
+
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false"/>
+
+  <!-- Bounding box + region_type (Label color communicates the type at a glance) -->
+  <RectangleLabels name="region_type" toName="image">
+    <Label value="main_notice"        background="#4E79A7"/>
+    <Label value="small_text"         background="#F28E2B"/>
+    <Label value="qr_code"            background="#E15759"/>
+    <Label value="button_link"        background="#76B7B2"/>
+    <Label value="background_text"    background="#59A14F"/>
+    <Label value="document_margin"    background="#EDC948"/>
+    <Label value="table_caption"      background="#B07AA1"/>
+    <Label value="product_label_text" background="#FF9DA7"/>
+    <Label value="other"              background="#9C755F"/>
+  </RectangleLabels>
+
+  <!-- Per-region attributes. Rendered as a side panel for the selected bbox. -->
+  <View style="margin-top: 12px; padding: 10px; background: #f5f5f5; border-radius: 6px">
+    <Header value="Region attributes (per bounding box)"/>
+
+    <Choices name="text_like" toName="image" perRegion="true" required="false" choice="single">
+      <Choice value="text_like"/>
+      <Choice value="not_text"/>
+    </Choices>
+
+    <TextArea name="ocr_text" toName="image" perRegion="true"
+              required="false"
+              placeholder="Transcribe the text in this region (leave empty if not text)"
+              rows="2" editable="true" maxSubmissions="1"/>
+
+    <Choices name="risk" toName="image" perRegion="true" required="false" choice="multiple">
+      <Choice value="is_injection"/>
+      <Choice value="is_normal_info"/>
+    </Choices>
+
+    <Rating name="confidence" toName="image" perRegion="true" required="false"
+            maxRating="5" defaultValue="5" size="medium"/>
+
+    <TextArea name="notes" toName="image" perRegion="true"
+              required="false" placeholder="Optional annotator notes"
+              rows="1" editable="true" maxSubmissions="1"/>
+  </View>
+</View>
