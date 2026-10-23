@@ -14,8 +14,5 @@ sentence-transformers>=3.0
 # TTS
 gTTS>=2.4
 
-# HTML/JS camera: Python ↔ JavaScript 통신
-streamlit-javascript>=0.1.5
-
 # Data ingest
 datasets>=2.19
