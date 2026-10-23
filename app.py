@@ -1,13 +1,10 @@
-"""VPI Defense — 라이브 시연용 2분할 UI with 전면/후면 카메라 전환.
-
-좌측: 사례 버튼 (캐시 시연) 또는 카메라/파일 (라이브 분석)
-우측: 분석 결과 (상황별 분기)
-"""
+"""VPI Defense — 라이브 시연용 2분할 UI with 전면/후면 카메라 전환."""
 from __future__ import annotations
 
 import io
 import os
 import sys
+import threading
 from pathlib import Path
 
 import streamlit as st
@@ -112,7 +109,17 @@ for key in ("result", "mode", "current_image", "bbox_image", "masked_image",
         st.session_state[key] = None
 
 if st.session_state.camera_facing is None:
-    st.session_state.camera_facing = "environment"  # 기본값: 후면
+    st.session_state.camera_facing = "environment"
+
+
+# ============================================================================
+# Global frame storage (쓰레드 안전, session_state 밖)
+# ============================================================================
+
+# streamlit-webrtc worker 쓰레드가 session_state에 접근 불가하므로
+# 전역 변수 + Lock으로 캡처된 프레임을 관리.
+_frame_lock = threading.Lock()
+_latest_frame = {"data": None}  # Dict로 wrapping하여 참조 유지
 
 
 # ============================================================================
@@ -272,9 +279,8 @@ with col_input:
 
     tab_cam, tab_file = st.tabs(["📷 카메라", "📁 파일 업로드"])
 
-    # ---- 카메라 탭: 전면/후면 전환 ----
+    # ---- 카메라 탭 ----
     with tab_cam:
-        # 전면/후면 선택
         facing_label = st.radio(
             "카메라 선택",
             options=["📷 후면 (바깥쪽)", "🤳 전면 (셀카)"],
@@ -287,26 +293,21 @@ with col_input:
             st.session_state.camera_facing = new_facing
             st.rerun()
 
-        # streamlit-webrtc로 카메라 실행
         try:
             from streamlit_webrtc import webrtc_streamer, WebRtcMode
 
+            # 쓰레드-안전한 processor: session_state 접근 X, 전역 변수에 저장
             class SnapshotProcessor:
-                def __init__(self):
-                    self.last_frame = None
-
                 def recv(self, frame):
                     img = frame.to_ndarray(format="bgr24")
-                    self.last_frame = img
+                    with _frame_lock:
+                        _latest_frame["data"] = img
                     return frame
-
-            if "snapshot_processor" not in st.session_state:
-                st.session_state.snapshot_processor = SnapshotProcessor()
 
             ctx = webrtc_streamer(
                 key=f"camera-{st.session_state.camera_facing}",
                 mode=WebRtcMode.SENDRECV,
-                video_processor_factory=lambda: st.session_state.snapshot_processor,
+                video_processor_factory=SnapshotProcessor,
                 media_stream_constraints={
                     "video": {"facingMode": {"ideal": st.session_state.camera_facing}},
                     "audio": False,
@@ -317,13 +318,15 @@ with col_input:
             if ctx.state.playing:
                 if st.button("📸 지금 촬영", type="secondary", use_container_width=True,
                              key="snap_btn"):
-                    if st.session_state.snapshot_processor.last_frame is not None:
-                        # BGR → RGB → PIL
+                    with _frame_lock:
+                        frame = _latest_frame["data"]
+                    if frame is not None:
                         import numpy as np
-                        frame = st.session_state.snapshot_processor.last_frame
                         img_rgb = frame[:, :, ::-1]  # BGR → RGB
                         st.session_state.captured_frame = Image.fromarray(img_rgb.astype(np.uint8))
                         st.rerun()
+                    else:
+                        st.warning("아직 프레임이 수신되지 않았습니다. 잠시 후 다시 시도.")
         except ImportError:
             st.warning(
                 "📦 `streamlit-webrtc`가 설치되지 않았습니다.\n\n"
@@ -331,7 +334,6 @@ with col_input:
                 "배포: `requirements.txt`에 추가 후 재배포"
             )
 
-    # ---- 파일 업로드 탭 ----
     with tab_file:
         file_img = st.file_uploader(
             "이미지 선택",
@@ -340,7 +342,6 @@ with col_input:
             label_visibility="collapsed",
         )
 
-    # 라이브 입력 결정 (파일 > 카메라 캡처)
     live_image = None
     if file_img is not None:
         live_image = Image.open(file_img).convert("RGB")
@@ -351,10 +352,9 @@ with col_input:
         st.image(live_image, caption="입력 이미지", use_column_width=True)
         if st.button("🚀 실제 분석 시작", type="primary", use_container_width=True):
             if run_live_analysis(live_image):
-                st.session_state.captured_frame = None  # 캡처 초기화
+                st.session_state.captured_frame = None
                 st.rerun()
 
-    # 리셋
     if st.session_state.result is not None:
         st.divider()
         if st.button("🔄 리셋", use_container_width=True):
