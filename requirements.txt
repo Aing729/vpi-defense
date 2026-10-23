@@ -14,9 +14,8 @@ sentence-transformers>=3.0
 # TTS
 gTTS>=2.4
 
-# Camera (전면/후면 전환)
-streamlit-webrtc>=0.47
-av>=10.0
+# HTML/JS camera: Python ↔ JavaScript 통신
+streamlit-javascript>=0.1.5
 
 # Data ingest
 datasets>=2.19
