@@ -97,7 +97,7 @@ CAMERA_HTML = """
 <style>
     #cam-wrap { text-align: center; padding: 5px; }
     #cam-video {
-        max-width: 100%; max-height: 350px;
+        max-width: 100%; max-height: 280px;
         border-radius: 8px; background: #000;
         display: block; margin: 0 auto;
     }
@@ -115,10 +115,6 @@ CAMERA_HTML = """
     #cam-status {
         margin-top: 8px; font-size: 0.9em; color: #555;
     }
-    #cam-preview {
-        margin-top: 10px; max-width: 100%; max-height: 200px;
-        display: none; border-radius: 8px;
-    }
 </style>
 <div id="cam-wrap">
     <video id="cam-video" autoplay playsinline muted></video>
@@ -127,7 +123,6 @@ CAMERA_HTML = """
         <button class="cam-btn" id="btn-capture" onclick="captureCam()">📸 촬영</button>
     </div>
     <div id="cam-status">초기화 중...</div>
-    <img id="cam-preview">
     <canvas id="cam-canvas" style="display:none;"></canvas>
     <!-- 캡처 결과를 저장할 숨겨진 textarea -->
     <textarea id="cam-result" style="display:none;"></textarea>
@@ -168,12 +163,17 @@ CAMERA_HTML = """
         canvas.getContext('2d').drawImage(video, 0, 0);
         const dataURL = canvas.toDataURL('image/jpeg', 0.85);
 
-        // 미리보기
-        const preview = document.getElementById('cam-preview');
-        preview.src = dataURL;
-        preview.style.display = 'block';
         document.getElementById('cam-status').innerText =
-            '✅ 촬영됨! "분석 시작" 버튼을 눌러주세요.';
+            '✅ 촬영됨! 아래 "분석 시작" 버튼을 눌러주세요.';
+
+        // 캡처 후 비디오 숨기고 iframe 축소 시도 (스크롤 최소화)
+        try {
+            document.getElementById('cam-video').style.display = 'none';
+            document.querySelector('.cam-controls').style.display = 'none';
+            if (window.frameElement) {
+                window.frameElement.style.height = '60px';
+            }
+        } catch(e) {}
 
         // 부모 윈도우에 전달 시도 (iframe → parent)
         try {
@@ -393,7 +393,7 @@ with col_input:
 
     # ---- 카메라 탭: HTML/JS 커스텀 ----
     with tab_cam:
-        st.components.v1.html(CAMERA_HTML, height=500)
+        st.components.v1.html(CAMERA_HTML, height=420)
 
         # 캡처 결과 폴링
         try:
