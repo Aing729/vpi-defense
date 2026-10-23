@@ -1,5 +1,5 @@
 """VPI Defense — 라이브 시연용 2분할 UI.
-HTML/JS 커스텀 카메라 (전면/후면 자동 전환, START 버튼 없음).
+Custom Component로 전면/후면 카메라 (공식 Streamlit 통신 API).
 """
 from __future__ import annotations
 
@@ -14,12 +14,19 @@ from PIL import Image
 
 _REPO_ROOT = Path(__file__).parent
 sys.path.insert(0, str(_REPO_ROOT / "src"))
+sys.path.insert(0, str(_REPO_ROOT))  # camera_component import
 
 from vpi_defense.analysis import GeminiVLMClient
 from vpi_defense.features import try_load_default_embedder
 from vpi_defense.pipeline import apply_masks, run_pipeline
 from vpi_defense.risk import RiskModel
 from vpi_defense.webapp import draw_regions, synthesize_speech_bytes
+
+try:
+    from camera_component import camera_input as custom_camera_input
+    _CAMERA_AVAILABLE = True
+except ImportError:
+    _CAMERA_AVAILABLE = False
 
 
 # ============================================================================
@@ -90,129 +97,6 @@ BUILTIN_CASES = {
 
 
 # ============================================================================
-# HTML/JS 카메라 컴포넌트
-# ============================================================================
-
-CAMERA_HTML = """
-<style>
-    #cam-wrap { text-align: center; padding: 5px; }
-    #cam-video {
-        max-width: 100%; max-height: 280px;
-        border-radius: 8px; background: #000;
-        display: block; margin: 0 auto;
-    }
-    .cam-controls {
-        margin-top: 10px;
-        display: flex; gap: 8px; justify-content: center;
-    }
-    .cam-btn {
-        padding: 10px 18px; font-size: 1em;
-        border: none; border-radius: 6px;
-        cursor: pointer; font-weight: 500;
-    }
-    #btn-switch { background: #4a90e2; color: white; }
-    #btn-capture { background: #28a745; color: white; }
-    #cam-status {
-        margin-top: 8px; font-size: 0.9em; color: #555;
-    }
-</style>
-<div id="cam-wrap">
-    <video id="cam-video" autoplay playsinline muted></video>
-    <div class="cam-controls">
-        <button class="cam-btn" id="btn-switch" onclick="switchCam()">🔄 전환</button>
-        <button class="cam-btn" id="btn-capture" onclick="captureCam()">📸 촬영</button>
-    </div>
-    <div id="cam-status">초기화 중...</div>
-    <canvas id="cam-canvas" style="display:none;"></canvas>
-    <!-- 캡처 결과를 저장할 숨겨진 textarea -->
-    <textarea id="cam-result" style="display:none;"></textarea>
-</div>
-
-<script>
-(function() {
-    let facing = 'environment';
-    let currentStream = null;
-
-    async function startCam() {
-        try {
-            if (currentStream) {
-                currentStream.getTracks().forEach(t => t.stop());
-            }
-            currentStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { ideal: facing } },
-                audio: false
-            });
-            document.getElementById('cam-video').srcObject = currentStream;
-            document.getElementById('cam-status').innerText =
-                facing === 'environment' ? '📷 후면 카메라' : '🤳 전면 카메라';
-        } catch(e) {
-            document.getElementById('cam-status').innerText = '❌ ' + e.message;
-        }
-    }
-
-    window.switchCam = function() {
-        facing = facing === 'environment' ? 'user' : 'environment';
-        startCam();
-    };
-
-    window.captureCam = function() {
-        const video = document.getElementById('cam-video');
-        const canvas = document.getElementById('cam-canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        const dataURL = canvas.toDataURL('image/jpeg', 0.85);
-
-        document.getElementById('cam-status').innerText =
-            '✅ 촬영됨! 아래 "분석 시작" 버튼을 눌러주세요.';
-
-        // 캡처 후 비디오 숨기고 iframe 축소 시도 (스크롤 최소화)
-        try {
-            document.getElementById('cam-video').style.display = 'none';
-            document.querySelector('.cam-controls').style.display = 'none';
-            if (window.frameElement) {
-                window.frameElement.style.height = '60px';
-            }
-        } catch(e) {}
-
-        // 부모 윈도우에 전달 시도 (iframe → parent)
-        try {
-            // localStorage에 저장 (same-origin일 때 작동)
-            window.parent.localStorage.setItem('vpi_captured', dataURL);
-        } catch(e) {
-            // cross-origin이면 localStorage는 iframe의 로컬에만
-            localStorage.setItem('vpi_captured', dataURL);
-        }
-
-        // postMessage로도 전달
-        window.parent.postMessage({
-            type: 'vpi_capture',
-            data: dataURL
-        }, '*');
-    };
-
-    // 자동 시작
-    startCam();
-})();
-</script>
-"""
-
-# 캡처 결과를 읽는 JS (streamlit-javascript로 실행)
-READ_CAPTURE_JS = """
-(function() {
-    try {
-        const data = localStorage.getItem('vpi_captured');
-        if (data) {
-            localStorage.removeItem('vpi_captured');
-            return data;
-        }
-    } catch(e) {}
-    return null;
-})();
-"""
-
-
-# ============================================================================
 # Page config
 # ============================================================================
 
@@ -229,7 +113,7 @@ st.set_page_config(
 # ============================================================================
 
 for key in ("result", "mode", "current_image", "bbox_image", "masked_image",
-            "captured_frame"):
+            "captured_frame", "last_captured_data"):
     if key not in st.session_state:
         st.session_state[key] = None
 
@@ -391,29 +275,27 @@ with col_input:
 
     tab_cam, tab_file = st.tabs(["📷 카메라", "📁 파일 업로드"])
 
-    # ---- 카메라 탭: HTML/JS 커스텀 ----
+    # ---- 카메라 탭: Custom Component ----
     with tab_cam:
-        st.components.v1.html(CAMERA_HTML, height=420)
-
-        # 캡처 결과 폴링
-        try:
-            from streamlit_javascript import st_javascript
-            captured_data = st_javascript(READ_CAPTURE_JS, key="read_capture")
-
-            if captured_data and isinstance(captured_data, str) \
-                    and captured_data.startswith("data:image"):
-                try:
-                    _, b64 = captured_data.split(",", 1)
-                    img_bytes = base64.b64decode(b64)
-                    st.session_state.captured_frame = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"이미지 디코딩 실패: {e}")
-        except ImportError:
-            st.warning(
-                "📦 `streamlit-javascript` 패키지 필요.\n"
-                "`requirements.txt`에 추가되어 있는지 확인하세요."
+        if not _CAMERA_AVAILABLE:
+            st.error(
+                "`camera_component.py` 와 `camera_frontend/` 폴더가 "
+                "프로젝트 루트에 있어야 합니다."
             )
+        else:
+            captured_data = custom_camera_input(key="vpi_cam")
+
+            # 새로운 캡처만 처리 (중복 방지)
+            if captured_data and captured_data != st.session_state.last_captured_data:
+                if isinstance(captured_data, str) and captured_data.startswith("data:image"):
+                    try:
+                        _, b64 = captured_data.split(",", 1)
+                        img_bytes = base64.b64decode(b64)
+                        st.session_state.captured_frame = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                        st.session_state.last_captured_data = captured_data
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"이미지 디코딩 실패: {e}")
 
     with tab_file:
         file_img = st.file_uploader(
@@ -434,13 +316,14 @@ with col_input:
         if st.button("🚀 실제 분석 시작", type="primary", use_container_width=True):
             if run_live_analysis(live_image):
                 st.session_state.captured_frame = None
+                st.session_state.last_captured_data = None
                 st.rerun()
 
     if st.session_state.result is not None:
         st.divider()
         if st.button("🔄 리셋", use_container_width=True):
             for key in ("result", "mode", "current_image", "bbox_image",
-                        "masked_image", "captured_frame"):
+                        "masked_image", "captured_frame", "last_captured_data"):
                 st.session_state[key] = None
             st.rerun()
 
