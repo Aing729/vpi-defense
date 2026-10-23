@@ -1,5 +1,4 @@
 # Streamlit Cloud installs from this file.
-# For local dev use `pip install -e ".[dev,analysis]"` from pyproject.toml.
 
 # Core
 streamlit>=1.36
@@ -15,6 +14,9 @@ sentence-transformers>=3.0
 # TTS
 gTTS>=2.4
 
-# Data ingest (for training pipeline; not strictly needed at inference,
-# but pyproject.toml chains these as [analysis] extras)
+# Camera (전면/후면 전환)
+streamlit-webrtc>=0.47
+av>=10.0
+
+# Data ingest
 datasets>=2.19
