@@ -1,10 +1,12 @@
-"""VPI Defense — 라이브 시연용 2분할 UI with 전면/후면 카메라 전환."""
+"""VPI Defense — 라이브 시연용 2분할 UI.
+HTML/JS 커스텀 카메라 (전면/후면 자동 전환, START 버튼 없음).
+"""
 from __future__ import annotations
 
+import base64
 import io
 import os
 import sys
-import threading
 from pathlib import Path
 
 import streamlit as st
@@ -88,6 +90,129 @@ BUILTIN_CASES = {
 
 
 # ============================================================================
+# HTML/JS 카메라 컴포넌트
+# ============================================================================
+
+CAMERA_HTML = """
+<style>
+    #cam-wrap { text-align: center; padding: 5px; }
+    #cam-video {
+        max-width: 100%; max-height: 350px;
+        border-radius: 8px; background: #000;
+        display: block; margin: 0 auto;
+    }
+    .cam-controls {
+        margin-top: 10px;
+        display: flex; gap: 8px; justify-content: center;
+    }
+    .cam-btn {
+        padding: 10px 18px; font-size: 1em;
+        border: none; border-radius: 6px;
+        cursor: pointer; font-weight: 500;
+    }
+    #btn-switch { background: #4a90e2; color: white; }
+    #btn-capture { background: #28a745; color: white; }
+    #cam-status {
+        margin-top: 8px; font-size: 0.9em; color: #555;
+    }
+    #cam-preview {
+        margin-top: 10px; max-width: 100%; max-height: 200px;
+        display: none; border-radius: 8px;
+    }
+</style>
+<div id="cam-wrap">
+    <video id="cam-video" autoplay playsinline muted></video>
+    <div class="cam-controls">
+        <button class="cam-btn" id="btn-switch" onclick="switchCam()">🔄 전환</button>
+        <button class="cam-btn" id="btn-capture" onclick="captureCam()">📸 촬영</button>
+    </div>
+    <div id="cam-status">초기화 중...</div>
+    <img id="cam-preview">
+    <canvas id="cam-canvas" style="display:none;"></canvas>
+    <!-- 캡처 결과를 저장할 숨겨진 textarea -->
+    <textarea id="cam-result" style="display:none;"></textarea>
+</div>
+
+<script>
+(function() {
+    let facing = 'environment';
+    let currentStream = null;
+
+    async function startCam() {
+        try {
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+            }
+            currentStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: facing } },
+                audio: false
+            });
+            document.getElementById('cam-video').srcObject = currentStream;
+            document.getElementById('cam-status').innerText =
+                facing === 'environment' ? '📷 후면 카메라' : '🤳 전면 카메라';
+        } catch(e) {
+            document.getElementById('cam-status').innerText = '❌ ' + e.message;
+        }
+    }
+
+    window.switchCam = function() {
+        facing = facing === 'environment' ? 'user' : 'environment';
+        startCam();
+    };
+
+    window.captureCam = function() {
+        const video = document.getElementById('cam-video');
+        const canvas = document.getElementById('cam-canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        const dataURL = canvas.toDataURL('image/jpeg', 0.85);
+
+        // 미리보기
+        const preview = document.getElementById('cam-preview');
+        preview.src = dataURL;
+        preview.style.display = 'block';
+        document.getElementById('cam-status').innerText =
+            '✅ 촬영됨! "분석 시작" 버튼을 눌러주세요.';
+
+        // 부모 윈도우에 전달 시도 (iframe → parent)
+        try {
+            // localStorage에 저장 (same-origin일 때 작동)
+            window.parent.localStorage.setItem('vpi_captured', dataURL);
+        } catch(e) {
+            // cross-origin이면 localStorage는 iframe의 로컬에만
+            localStorage.setItem('vpi_captured', dataURL);
+        }
+
+        // postMessage로도 전달
+        window.parent.postMessage({
+            type: 'vpi_capture',
+            data: dataURL
+        }, '*');
+    };
+
+    // 자동 시작
+    startCam();
+})();
+</script>
+"""
+
+# 캡처 결과를 읽는 JS (streamlit-javascript로 실행)
+READ_CAPTURE_JS = """
+(function() {
+    try {
+        const data = localStorage.getItem('vpi_captured');
+        if (data) {
+            localStorage.removeItem('vpi_captured');
+            return data;
+        }
+    } catch(e) {}
+    return null;
+})();
+"""
+
+
+# ============================================================================
 # Page config
 # ============================================================================
 
@@ -104,22 +229,9 @@ st.set_page_config(
 # ============================================================================
 
 for key in ("result", "mode", "current_image", "bbox_image", "masked_image",
-            "captured_frame", "camera_facing"):
+            "captured_frame"):
     if key not in st.session_state:
         st.session_state[key] = None
-
-if st.session_state.camera_facing is None:
-    st.session_state.camera_facing = "environment"
-
-
-# ============================================================================
-# Global frame storage (쓰레드 안전, session_state 밖)
-# ============================================================================
-
-# streamlit-webrtc worker 쓰레드가 session_state에 접근 불가하므로
-# 전역 변수 + Lock으로 캡처된 프레임을 관리.
-_frame_lock = threading.Lock()
-_latest_frame = {"data": None}  # Dict로 wrapping하여 참조 유지
 
 
 # ============================================================================
@@ -279,59 +391,28 @@ with col_input:
 
     tab_cam, tab_file = st.tabs(["📷 카메라", "📁 파일 업로드"])
 
-    # ---- 카메라 탭 ----
+    # ---- 카메라 탭: HTML/JS 커스텀 ----
     with tab_cam:
-        facing_label = st.radio(
-            "카메라 선택",
-            options=["📷 후면 (바깥쪽)", "🤳 전면 (셀카)"],
-            horizontal=True,
-            key="facing_radio",
-            index=0 if st.session_state.camera_facing == "environment" else 1,
-        )
-        new_facing = "environment" if "후면" in facing_label else "user"
-        if new_facing != st.session_state.camera_facing:
-            st.session_state.camera_facing = new_facing
-            st.rerun()
+        st.components.v1.html(CAMERA_HTML, height=500)
 
+        # 캡처 결과 폴링
         try:
-            from streamlit_webrtc import webrtc_streamer, WebRtcMode
+            from streamlit_javascript import st_javascript
+            captured_data = st_javascript(READ_CAPTURE_JS, key="read_capture")
 
-            # 쓰레드-안전한 processor: session_state 접근 X, 전역 변수에 저장
-            class SnapshotProcessor:
-                def recv(self, frame):
-                    img = frame.to_ndarray(format="bgr24")
-                    with _frame_lock:
-                        _latest_frame["data"] = img
-                    return frame
-
-            ctx = webrtc_streamer(
-                key=f"camera-{st.session_state.camera_facing}",
-                mode=WebRtcMode.SENDRECV,
-                video_processor_factory=SnapshotProcessor,
-                media_stream_constraints={
-                    "video": {"facingMode": {"ideal": st.session_state.camera_facing}},
-                    "audio": False,
-                },
-                async_processing=True,
-            )
-
-            if ctx.state.playing:
-                if st.button("📸 지금 촬영", type="secondary", use_container_width=True,
-                             key="snap_btn"):
-                    with _frame_lock:
-                        frame = _latest_frame["data"]
-                    if frame is not None:
-                        import numpy as np
-                        img_rgb = frame[:, :, ::-1]  # BGR → RGB
-                        st.session_state.captured_frame = Image.fromarray(img_rgb.astype(np.uint8))
-                        st.rerun()
-                    else:
-                        st.warning("아직 프레임이 수신되지 않았습니다. 잠시 후 다시 시도.")
+            if captured_data and isinstance(captured_data, str) \
+                    and captured_data.startswith("data:image"):
+                try:
+                    _, b64 = captured_data.split(",", 1)
+                    img_bytes = base64.b64decode(b64)
+                    st.session_state.captured_frame = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"이미지 디코딩 실패: {e}")
         except ImportError:
             st.warning(
-                "📦 `streamlit-webrtc`가 설치되지 않았습니다.\n\n"
-                "로컬: `pip install streamlit-webrtc av`\n\n"
-                "배포: `requirements.txt`에 추가 후 재배포"
+                "📦 `streamlit-javascript` 패키지 필요.\n"
+                "`requirements.txt`에 추가되어 있는지 확인하세요."
             )
 
     with tab_file:
